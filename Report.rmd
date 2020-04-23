@@ -1,0 +1,147 @@
+---
+title: "Diamond's Report"
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(dplyr)
+library(rmdformats) 
+library(corrgram)
+library(MASS)
+library(ggplot2)
+library(naniar)
+library(lattice)
+library(memisc)
+library(ggpubr)
+library(ggcorrplot)
+library(ResourceSelection)
+library(gridExtra)
+library(tidyverse)
+library(leaps)
+library(car)
+library(arm)
+```
+
+## Introduction 
+
+Diamonds are said to be one of the most precious and sought after gemstones. For a long time, diamond pricing and trading was controlled by monopolist corporation, De Beers Group. This monopoly has since been dismantled and we now have several diamond suppliers and traders all over the world. We are even able to custom build our own diamond jewellery online with our preferred specifications such as the diamond weight (carat), diamond color, clarity level and cut type to name a few. These parameters, also known as the 4 C's, influence the diamond quality and hence, the price. 
+
+In order to predict the price of a diamond, we analyze a dataset of 53,940 diamonds and 10 of their variables. There are seven variables of continuous data type, namely, price (in USD), carat (weight), depth percentage(ratio of height to width), table (width of top of diamond), x(length in mm), y(width in mm), z (depth in mm). There are 3 ordinal categorical variables, namely cut, clarity and color. Cut is in order of Fair(Worst) to Ideal(Best), clarity is in order of I1(Worst) to IF(Best) and color is in order of D(Best) to J(Worst).
+
+### Research Questions
+With this analysis, we intend to answer the below questions
+1.	What is the association between the price of diamonds and the 4 C's? How much total information do they provide?
+2.	How well can the price of diamonds be predicted by the cut, clarity, color and carat?
+
+## Analysis
+
+We analyze the outcome variable; price and a predictor variable; carat. The other continuous varables, which relate to the dimensions of the diamond contribute to the total weight of the diamond, therefore they will not be analyzed along with carats in order to avoid multicollinearity. The below scatterplot shows that there is a positive linear relationship between price and carat. The histograms also show that both price and carat are rightskewed. This makes sense considering that there is a wide range of diamonds available to the public however majority of the population will be unable to afford the larger carats, and neither do they have utility for it.
+
+```{r, echo=FALSE}
+scatterprice<- diamonds %>% ggplot(aes(x=carat, y=price)) + geom_point(color="black") +labs(x="Carat", y="Price($)", title =  "Plot Analysis of Diamond Prices and Carats")+geom_smooth(method= "lm", col= "red")+ylim(0,20000)+theme_classic()+ theme(plot.title = element_text(size = 12, hjust = 0.5))
+histoprice<- diamonds %>% ggplot(aes(x=price)) + geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args = list(mean= mean(diamonds$price), sd=sd(diamonds$price))) +labs(x="Price ($)", y="Diamond Count") +theme_classic()
+histocarat<- diamonds %>% ggplot(aes(x=carat)) + geom_histogram(aes(y=..density..))+stat_function(fun=dnorm, args = list(mean= mean(diamonds$carat), sd=sd(diamonds$carat))) +labs(x="Carat", y="Diamond Count")+theme_classic()
+scatterprice
+grid.arrange(histoprice,histocarat, ncol = 2)
+```
+
+Our dataset is positively skewed and contains a large number of outliers therefore, we will use the median as a measure of central tendency. 50% of diamonds are priced below $2,400 however the highest priced diamond is about $18,800. Also, 50% of the diamonds have carat size below 0.7 and the maximum carat size is 5.0. 
+
+```{r, echo=FALSE, include=FALSE}
+median(diamonds$price)
+median(diamonds$carat)
+max(diamonds$price)
+max(diamonds$carat)
+```
+
+
+### Data Transformation
+As our data violates the assumption of normality and contains a large number of outliers, we conduct a logarithm transformation of the price and carat variables.This could be useful for identifying patterns and making them easier to interpret. Transforming the data gives for better interpretation of subsequent linear regression assumptions that will be evaluated in the coming sections. 
+
+```{r}
+diamonds_data <- diamonds %>% mutate(log_price = log10(price),  
+  log_carat = log10(carat))
+
+histologprice<- diamonds_data %>% ggplot((aes(x = log_price))) +
+  geom_histogram(binwidth = 0.05, aes(y=..density..)) +
+  ggtitle('Diamond Prices Histogram') + theme_classic() + stat_function(fun=dnorm, args = list(mean= mean(diamonds_data$log_price), sd=sd(diamonds_data$log_price))) +  labs(x="Log of Price", y="Diamond Count")
+  
+histologcarat<- diamonds_data %>% ggplot((aes(x = log_carat))) +
+  geom_histogram(binwidth = 0.05, aes(y=..density..)) +
+  ggtitle('Diamond Carats Histogram') + theme_classic() + stat_function(fun=dnorm, args = list(mean= mean(diamonds_data$log_carat), sd=sd(diamonds_data$log_carat)))  +  labs(x="Log of Carat", y="Diamond Count")
+
+grid.arrange(histologprice, histologcarat, ncol=2)
+```
+
+After we complete the transformation, the data appears to follow a normal distribution. Further analysis of normality was not completed as this is not one of our model's assumptions.
+
+From inspecting the below plots, we can see that not only is there a linear relationship between price and carats, the price is is also influenced by the variables; color, cut and clarity. Specifically, it seems that better quality diamonds which have higher carat size are expected to be more expensive however, the prevalence of lower quality diamonds is more in larger carat size. This gives us the inclination that people might be compromising on the quality of the diamond for the size.
+
+```{r}
+diamondclarity<-ggplot(diamonds, aes(x = log10(carat), y = log10(price))) + geom_point(alpha = 0.5, size = 1, position = 'jitter', aes(color=clarity)) + labs(x="LogCarat", y="LogPrice($)") + theme_classic()
+diamondcut<-ggplot(diamonds, aes(x = log10(carat), y = log10(price))) + geom_point(alpha = 0.5, size = 1, position = 'jitter', aes(color=cut)) + labs(x="LogCarat", y="LogPrice($)") + theme_classic()
+diamondcolor<-ggplot(diamonds, aes(x = log10(carat), y = log10(price))) + geom_point(alpha = 0.5, size = 1, position = 'jitter', aes(color=color)) + labs(x="LogCarat", y="LogPrice($)") + theme_classic()
+grid.arrange(diamondcolor, diamondcut, diamondclarity, ncol = 3)
+```
+
+## Multivariate Analysis - Predicting Diamond Prices
+We have confirmed there is a positive correlation between diamond price and carat *r=0.92, p<0.001*. We have also deduced from the above plots that the 3 C's have an impact on pricing as well. However, we will like to create a predictive model to determine the expected price of the diamond based on given parameters.
+
+We tested four different regression models, each with an additional predictor variable. The most accurate model is Model 4, it has a combination of cut, color, clarity and the log of carat as predictors, with *r= 0.9912, p<0.001*. This model explained over 98% of the total variance in price. The addition of further variables did not improve past an R-square of 0.983.
+
+### Multiple Regression Model
+```{r}
+model_1 <- lm(formula = log10(price) ~ log10(carat), data = diamonds)
+model_2 <- lm(formula= log10(price) ~ log10(carat) + clarity, data = diamonds)
+model_3 <- lm(formula= log10(price) ~ log10(carat) + clarity + cut, data = diamonds)
+model_4 <- lm(formula= log10(price) ~ log10(carat) + clarity + cut + color, data = diamonds)
+mtable(model_1, model_2, model_3, model_4, model_4, sdigits = 3)
+```
+
+To test the model, we can predict the price of a 1.2 Carat diamond with Internally Flawless Clarity, Color F and a Premium Cut. This is a high quality diamond and therefore a higher price of $11,600. On the other hand, a 0.4 carat diamond with the same parameters has a price estimate of $1,465. 
+
+```{r echo=FALSE}
+newValues=tibble(carat= c(1.2,0.4), clarity= "IF", color="F", cut="Premium")
+PriceEstimate<- round(10^predict.lm(model_4, newValues))
+PriceEstimate
+```
+
+## Assumption Tests
+
+In order to ensure we can accurately use this model to predict the price of most diamonds in the market, we test the assumptions of a multiple linear regression model. We found that the variance inflation factors (VIF) for all variables are significantly below 10, indicating that there is no concern for multicollinearity. The Q-Q plot of the residuals shows that the residuals have a close to normal distribution. We can also confirm from the plots that the residuals are homoscedastic and do not have any influential points which may exert undue influence on the model as the maximum cooks distance =0.02. We can therefore conclude that this is a generalizable model. 
+
+VIF
+```{r echo=FALSE}
+vif(model_4) 
+```
+
+Cooks Distance
+```{r echo=FALSE}
+Cooks<-max(cooks.distance(model_4))
+Cooks
+```
+
+Residual Plots
+
+```{r echo=FALSE}
+plot(model_4) 
+```
+
+
+
+## Conclusion
+Our exploration of this dataset has led to various interesting findings. Firstly we found that, the number of carats has the greatest influence on the diamond price. Other attributes such as the color, clarity and cut of the diamond play an important role in pricing as well. Another intersting finding was that diamonds of larger size were usually of lower quality, hinting that some people might be willing to forego a better quality diamond for a large one. We have also successfully been able to identify the ideal predictors of diamond price and create a generalizable multiple regression model based on these predictors. To give people the opportunity to estimate how much they should expect to pay for a diamond, we built an app using Shiny. You may explore the app and find a price estimate for diamond that suits your needs. 
+
+## App
+To view the app run this code in RStudio:
+runGitHub("Final_Project","tinbolas")
+
+## References 
+evelynb7(2017). Diamond Price Estimator [GitHub]
+Retrieved from https://github.com/evelynb7/diamonds
+
